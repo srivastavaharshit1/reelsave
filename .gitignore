@@ -1,0 +1,30 @@
+# Dependencies and build output
+node_modules/
+frontend/dist/
+backend/target/
+**/target/
+coverage/
+build/
+out/
+backend/.m2repository/
+
+# Local environment
+.env
+.env.*
+!.env.example
+
+# IDE and OS files
+.idea/
+.vscode/
+.fleet/
+.settings/
+*.iml
+.classpath
+.project
+*.class
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
