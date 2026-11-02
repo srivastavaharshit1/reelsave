@@ -29,7 +29,7 @@ WORKDIR /app
 
 # Run as non-root user for security with dedicated writable temp directory
 RUN addgroup -S reelsave && adduser -S reelsave -G reelsave && \
-    mkdir -p /tmp/reelsave /app && chown -R reelsave:reelsave /tmp/reelsave /app
+    mkdir -p /app/tmp && chown -R reelsave:reelsave /app
 
 USER reelsave:reelsave
 
@@ -44,4 +44,4 @@ ENV YTDLP_MAX_DOWNLOAD_BYTES=52428800
 
 EXPOSE 8080
 
-ENTRYPOINT ["java", "-Djava.security.egd=file:/dev/./urandom", "-Djava.io.tmpdir=/tmp/reelsave", "-jar", "app.jar"]
+ENTRYPOINT ["java", "-Djava.security.egd=file:/dev/./urandom", "-Djava.io.tmpdir=/app/tmp", "-jar", "app.jar"]
