@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { downloadReel, normalizeApiError, resolveReelUrl, validateReelUrl, type MediaResult } from '../api/client'
+import { ApiError, downloadReel, normalizeApiError, resolveReelUrl, type MediaResult } from '../api/client'
 import { toReadyMediaResult, type ReadyMediaResult } from '../media/readyMedia'
 import { saveBlob } from '../media/saveBlob'
 
-export type ResolvingStage = 'connecting' | 'fetching'
+export type ResolvingStage = 'connecting' | 'fetching' | 'waking_up'
 
 export type DownloadWorkflowState =
   | { status: 'IDLE' }
@@ -16,10 +16,6 @@ export type DownloadWorkflowState =
   | { status: 'DOWNLOADING'; url: string; result: ReadyMediaResult }
   | { status: 'UNAVAILABLE'; url: string }
   | { status: 'ERROR'; url: string; message: string }
-
-function pauseForPaint(): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, 0))
-}
 
 function resolveMediaState(url: string, result: MediaResult): DownloadWorkflowState {
   switch (result.status) {
@@ -41,59 +37,64 @@ function resolveMediaState(url: string, result: MediaResult): DownloadWorkflowSt
 export function useDownloadWorkflow() {
   const [state, setState] = useState<DownloadWorkflowState>({ status: 'IDLE' })
   const requestInProgress = useRef(false)
-  const stageTimerRef = useRef<number | null>(null)
+  const stageTimersRef = useRef<number[]>([])
 
-  const clearStageTimer = useCallback(() => {
-    if (stageTimerRef.current !== null) {
-      window.clearTimeout(stageTimerRef.current)
-      stageTimerRef.current = null
-    }
+  const clearStageTimers = useCallback(() => {
+    stageTimersRef.current.forEach((id) => window.clearTimeout(id))
+    stageTimersRef.current = []
   }, [])
 
-  useEffect(() => () => clearStageTimer(), [clearStageTimer])
+  useEffect(() => () => clearStageTimers(), [clearStageTimers])
 
   const submit = useCallback(async (rawUrl: string) => {
     const url = rawUrl.trim()
     if (!url || requestInProgress.current) return
 
     requestInProgress.current = true
-    setState({ status: 'VALIDATING', url })
+    setState({ status: 'RESOLVING', url, stage: 'connecting' })
+
+    clearStageTimers()
+    const timer1 = window.setTimeout(() => {
+      setState((current) =>
+        current.status === 'RESOLVING' && current.stage === 'connecting'
+          ? { ...current, stage: 'fetching' }
+          : current
+      )
+    }, 2500)
+
+    const timer2 = window.setTimeout(() => {
+      setState((current) =>
+        current.status === 'RESOLVING'
+          ? { ...current, stage: 'waking_up' }
+          : current
+      )
+    }, 7000)
+
+    stageTimersRef.current = [timer1, timer2]
+
     try {
-      const validation = await validateReelUrl(url)
-      if (!validation.valid) {
-        setState({ status: 'INVALID_URL', url })
-        return
-      }
-
-      setState({ status: 'VALID_URL', url })
-      await pauseForPaint()
-      setState({ status: 'RESOLVING', url, stage: 'connecting' })
-
-      clearStageTimer()
-      stageTimerRef.current = window.setTimeout(() => {
-        setState((current) =>
-          current.status === 'RESOLVING' ? { ...current, stage: 'fetching' } : current
-        )
-      }, 2500)
-
       const result = await resolveReelUrl(url)
-      clearStageTimer()
+      clearStageTimers()
       setState(resolveMediaState(url, result))
     } catch (error) {
-      clearStageTimer()
-      setState({ status: 'ERROR', url, message: normalizeApiError(error) })
+      clearStageTimers()
+      if (error instanceof ApiError && error.status === 400) {
+        setState({ status: 'INVALID_URL', url })
+      } else {
+        setState({ status: 'ERROR', url, message: normalizeApiError(error) })
+      }
     } finally {
-      clearStageTimer()
+      clearStageTimers()
       requestInProgress.current = false
     }
-  }, [clearStageTimer])
+  }, [clearStageTimers])
 
   const reset = useCallback(() => {
     if (!requestInProgress.current) {
-      clearStageTimer()
+      clearStageTimers()
       setState({ status: 'IDLE' })
     }
-  }, [clearStageTimer])
+  }, [clearStageTimers])
 
   const reportMediaFailure = useCallback(() => {
     setState((current) => current.status === 'READY'
