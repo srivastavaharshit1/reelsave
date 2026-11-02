@@ -159,7 +159,7 @@ The backend defaults to port 8080. Install yt-dlp separately on the deployment h
 
 Build the frontend from `frontend/` with `npm ci` and `npm run build`, then publish `frontend/dist/` on the chosen static host. Configure `VITE_API_BASE_URL`, `VITE_PUBLIC_SITE_URL`, and a monitored `VITE_CONTACT_EMAIL` in the build environment; Vite embeds these values in the generated assets. For a cross-origin frontend/API deployment, set `REELSAVE_CORS_ALLOWED_ORIGINS` to the exact HTTPS frontend origin; leave it empty for same-origin reverse-proxy routing. Configure `SERVER_PORT` and the provider executable in the backend runtime. The static host must serve `index.html` as the fallback for the `/privacy`, `/terms`, `/copyright`, and `/contact` routes.
 
-A production multi-stage `backend/Dockerfile` and root `docker-compose.yml` are included. The container image builds the Spring Boot JAR with Maven on Java 21, then runs on a minimal Alpine JRE with a verified official yt-dlp release binary, non-root user isolation (`reelsave`), dynamic PORT assignment, graceful shutdown, and an isolated writable `/tmp/reelsave` workspace. Deployments on Render use `render.yaml` as an infrastructure blueprint.
+A production multi-stage `backend/Dockerfile` and root `docker-compose.yml` are included. The container image builds the Spring Boot JAR with Maven on Java 21, then runs on a minimal Alpine JRE with a verified official yt-dlp release binary, non-root user isolation (`reelsave`), dynamic PORT assignment, graceful shutdown, and an isolated writable `/app/tmp` workspace. Deployments on Render use `render.yaml` as an infrastructure blueprint.
 
 The Maven Surefire configuration preloads the project-managed Mockito agent and the JDK URL classpath workaround used for this Windows/JDK test environment. Run the ordinary Maven commands:
 
@@ -201,4 +201,30 @@ Before the Boot 4 migration on 2026-10-23, backend `mvn clean test` and `mvn pac
 
 After migration to Spring Boot 4.1.2 on 2026-10-23, backend `mvn clean test` and `mvn package` passed (49 tests, 0 failures/errors); the Java compiler used `--release 21`. Frontend `npm test -- --reporter=dot` passed (54 tests), `npm run lint` passed, and `npm run build` passed. The packaged Spring Boot app returned HTTP 200 with `UP` from both `/api/v1/health` and `/actuator/health`. The public Reel `Dey-qwUojgL` completed the UI validation, returned `READY`, loaded a 720×1280 preview (`readyState=4`), and downloaded a 1,276,424-byte MP4 through ReelSave. `Mp4Inspector` confirmed the MP4 container and both video and audio tracks. The downloaded verification file was moved to the Recycle Bin after inspection. The browser reported no console warnings or errors; all policy routes, favicon, and `robots.txt` returned/loaded successfully; the homepage had no horizontal overflow at the 1280-pixel test viewport. No browser credentials, cookies, sessions, or private content were used.
 
-The registry-backed npm audits on 2026-10-23 reported 12 development-tooling advisories (4 moderate, 6 high, 2 critical) and 0 production dependency advisories. The affected direct development dependencies are Vite, Tailwind CSS, and Vitest; the available fixes require major upgrades to Vite 8, Tailwind CSS 4, and Vitest 5. No frontend dependencies were changed. The frontend is deployed to production on Vercel at `https://reelsave-five.vercel.app` with public site URL, contact email (`srivastavaharshit248@gmail.com`), and download size limits configured. The containerized backend is configured via `backend/Dockerfile` and `render.yaml` with graceful shutdown, non-root user, dynamic port binding, and GitHub Actions CI passing on Java 21. Cloud backend provisioning on Render is ready to proceed upon Render account authorization.
+The registry-backed npm audits on 2026-10-23 reported 12 development-tooling advisories (4 moderate, 6 high, 2 critical) and 0 production dependency advisories. The affected direct development dependencies are Vite, Tailwind CSS, and Vitest; the available fixes require major upgrades to Vite 8, Tailwind CSS 4, and Vitest 5. No frontend dependencies were changed.
+
+### Production Deployment Verification (November 2026)
+
+- **Frontend Production URL**: `https://reelsave-five.vercel.app` (Vercel)
+- **Backend Production URL**: `https://reelsave-backend-5zko.onrender.com` (Render, Service ID `srv-dbkf1jfb9u1s73bt0ddg`)
+- **Docker & Runtime**: Java 21 (`eclipse-temurin:21-jre-alpine`), Spring Boot 4.1.2, official `yt-dlp` `2026.10.21` at `/usr/local/bin/yt-dlp`, non-root user `reelsave`, writable scratch directory `/app/tmp`.
+- **Health Checks**:
+  - `GET https://reelsave-backend-5zko.onrender.com/api/v1/health` -> HTTP 200 `{"status":"UP","service":"reelsave-api"}`
+  - `GET https://reelsave-backend-5zko.onrender.com/actuator/health` -> HTTP 200 `{"status":"UP"}`
+  - `GET https://reelsave-five.vercel.app/api/v1/health` (via Vercel reverse-proxy rewrite) -> HTTP 200 `{"status":"UP","service":"reelsave-api"}`
+- **Security & CORS**:
+  - `REELSAVE_CORS_ALLOWED_ORIGINS` set to `https://reelsave-five.vercel.app,https://reelsave.vercel.app`
+  - In addition to CORS, `frontend/vercel.json` provides same-origin `/api/:path*` reverse-proxy routing directly to the Render backend.
+  - Bounded rate limiting enabled (30 requests/60s).
+  - Outbound access restricted to public HTTPS media requests; no credentials, sessions, cookies, or bypass mechanisms.
+- **Production Smoke Test Candidate**: `https://www.instagram.com/reel/Dey-qwUojgL/`
+  - Validation: HTTP 200 OK
+  - Resolution: HTTP 200 OK (`READY`, `reel-Dey-qwUojgL.mp4`, signed `*.cdninstagram.com` progressive MP4 URL)
+  - Direct Backend Download (`POST /api/v1/reels/download`): HTTP 200, 1,276,424 bytes MP4 stream.
+  - Frontend Proxy Download (`POST https://reelsave-five.vercel.app/api/v1/reels/download`): HTTP 200, 1,276,424 bytes MP4 stream.
+  - Browser UI End-to-End Test (Headless Chrome):
+    - Tested invalid URL handling: UI shows error message and rejects invalid link.
+    - Submitted candidate Reel link: UI shows resolving state and transitions to 'Your Reel is ready' with video preview.
+    - Clicked 'Download video' button: browser automatically saved `reel-Dey-qwUojgL.mp4` (1,276,424 bytes).
+    - Ran `Mp4Inspector` on downloaded file: `isMp4=true`, `hasVideo=true`, `hasAudio=true`.
+    - Tested all legal and policy routes (`/privacy`, `/terms`, `/copyright`, `/contact`): all render HTTP 200 with matching titles and full content.

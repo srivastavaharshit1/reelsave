@@ -10,6 +10,15 @@ public final class Mp4Inspector {
 
     private Mp4Inspector() {}
 
+    public static void main(String[] args) throws IOException {
+        if (args.length == 0) {
+            System.err.println("Usage: Mp4Inspector <path-to-mp4>");
+            System.exit(1);
+        }
+        Inspection result = inspect(Path.of(args[0]));
+        System.out.println("isMp4=" + result.isMp4() + ", hasVideo=" + result.hasVideo() + ", hasAudio=" + result.hasAudio());
+    }
+
     public static Inspection inspect(Path path) throws IOException {
         try (RandomAccessFile file = new RandomAccessFile(path.toFile(), "r")) {
             long fileLength = file.length();
