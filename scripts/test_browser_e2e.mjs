@@ -112,6 +112,19 @@ async function main() {
 
     await client.send('Page.enable');
     await client.send('Runtime.enable');
+    await client.send('Network.enable');
+
+    client.ws.addEventListener('message', (event) => {
+      try {
+        const msg = JSON.parse(event.data);
+        if (msg.method === 'Network.responseReceived') {
+          console.log(`[HTTP ${msg.params.response.status}] ${msg.params.response.url}`);
+        } else if (msg.method === 'Network.loadingFailed') {
+          console.log(`[NET FAIL] ${msg.params.errorText}`);
+        }
+      } catch {}
+    });
+
     await client.send('Page.setDownloadBehavior', {
       behavior: 'allow',
       downloadPath: DOWNLOAD_DIR
