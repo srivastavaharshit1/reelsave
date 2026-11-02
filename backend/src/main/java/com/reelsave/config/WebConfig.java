@@ -27,7 +27,8 @@ public class WebConfig implements WebMvcConfigurer {
         registry.addMapping("/api/**")
                 .allowedOrigins(corsProperties.allowedOrigins().toArray(String[]::new))
                 .allowedMethods("GET", "POST", "OPTIONS")
-                .allowedHeaders("Content-Type");
+                .allowedHeaders("Content-Type", "X-Correlation-ID")
+                .exposedHeaders("X-Correlation-ID", "X-Cache", "X-Cold-Start", "Server-Timing");
     }
 
     @Override
