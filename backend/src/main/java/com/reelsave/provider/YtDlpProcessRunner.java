@@ -45,7 +45,7 @@ public class YtDlpProcessRunner {
         command.addAll(arguments);
 
         Process process = new ProcessBuilder(command).start();
-        ExecutorService streamReaders = Executors.newFixedThreadPool(2);
+        ExecutorService streamReaders = Executors.newVirtualThreadPerTaskExecutor();
         Future<CapturedOutput> stdoutFuture = streamReaders.submit(
                 () -> readLimited(process.getInputStream(), MAX_STDOUT_BYTES));
         Future<CapturedOutput> stderrFuture = streamReaders.submit(

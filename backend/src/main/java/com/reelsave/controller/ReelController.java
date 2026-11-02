@@ -15,6 +15,9 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.json.JsonMapper;
 import org.slf4j.Logger;
@@ -27,6 +30,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -37,6 +41,7 @@ import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBo
 public class ReelController {
 
     private static final Logger logger = LoggerFactory.getLogger(ReelController.class);
+    private static final AtomicBoolean isColdStart = new AtomicBoolean(true);
 
     private final ReelValidationService reelValidationService;
     private final ReelMediaService reelMediaService;
@@ -56,21 +61,62 @@ public class ReelController {
 
     @PostMapping("/validate")
     public ResponseEntity<ReelValidationResponse> validateReelUrl(
-            @Valid @RequestBody ReelValidationRequest request) {
+            @Valid @RequestBody ReelValidationRequest request,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String clientCorrelationId) {
+        long startNanos = System.nanoTime();
+        String corrId = sanitizeCorrelationId(clientCorrelationId);
         ReelValidationResponse response = reelValidationService.validate(request.url());
+        long durationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+        logger.info("corrId={} method=validate valid={} durationMs={}", corrId, response.valid(), durationMs);
+
         HttpStatus status = response.valid() ? HttpStatus.OK : HttpStatus.BAD_REQUEST;
-        return ResponseEntity.status(status).body(response);
+        return ResponseEntity.status(status)
+                .header("X-Correlation-ID", corrId)
+                .header("Server-Timing", "validate;dur=" + durationMs)
+                .body(response);
     }
 
     @PostMapping("/resolve")
-    public ResponseEntity<?> resolveReel(@Valid @RequestBody ReelValidationRequest request) {
+    public ResponseEntity<?> resolveReel(
+            @Valid @RequestBody ReelValidationRequest request,
+            @RequestHeader(value = "X-Correlation-ID", required = false) String clientCorrelationId) {
+        long startNanos = System.nanoTime();
+        String corrId = sanitizeCorrelationId(clientCorrelationId);
+        boolean cold = isColdStart.getAndSet(false);
+
         Optional<ReelUrl> reelUrl = reelValidationService.parseReelUrl(request.url());
+        long valDurationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
         if (reelUrl.isEmpty()) {
-            return ResponseEntity.badRequest().body(ReelValidationResponse.invalidInstagramReel());
+            logger.info("corrId={} method=resolve result=INVALID_URL durationMs={}", corrId, valDurationMs);
+            return ResponseEntity.badRequest()
+                    .header("X-Correlation-ID", corrId)
+                    .header("X-Cold-Start", Boolean.toString(cold))
+                    .body(ReelValidationResponse.invalidInstagramReel());
         }
 
+        String shortcode = shortcode(reelUrl.get());
+        boolean cacheHit = reelMediaService.cache() != null && reelMediaService.cache().get(shortcode).isPresent();
+
+        long resolveStartNanos = System.nanoTime();
         MediaResult result = reelMediaService.resolve(reelUrl.get());
-        return ResponseEntity.status(toHttpStatus(result.status())).body(result);
+        long resolveDurationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - resolveStartNanos);
+        long totalDurationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+
+        logger.info("corrId={} method=resolve shortcode={} status={} cacheHit={} coldStart={} resolveMs={} totalMs={}",
+                corrId, shortcode, result != null ? result.status() : "NULL", cacheHit, cold, resolveDurationMs, totalDurationMs);
+
+        if (result == null) {
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .header("X-Correlation-ID", corrId)
+                    .build();
+        }
+
+        return ResponseEntity.status(toHttpStatus(result.status()))
+                .header("X-Correlation-ID", corrId)
+                .header("X-Cold-Start", Boolean.toString(cold))
+                .header("X-Cache", cacheHit ? "HIT" : "MISS")
+                .header("Server-Timing", "total;dur=" + totalDurationMs + ", resolve;dur=" + resolveDurationMs)
+                .body(result);
     }
 
     /** Accepts only a validated Instagram Reel URL; it never acts as a caller-directed proxy. */
@@ -142,5 +188,19 @@ public class ReelController {
             case UNAVAILABLE -> HttpStatus.SERVICE_UNAVAILABLE;
             case ERROR -> HttpStatus.BAD_GATEWAY;
         };
+    }
+
+    private static String sanitizeCorrelationId(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return UUID.randomUUID().toString().substring(0, 8);
+        }
+        String cleaned = raw.replaceAll("[^a-zA-Z0-9_-]", "");
+        return cleaned.length() > 64 ? cleaned.substring(0, 64) : cleaned;
+    }
+
+    private static String shortcode(ReelUrl reelUrl) {
+        String path = reelUrl.uri().getPath();
+        String value = path.substring("/reel/".length());
+        return value.endsWith("/") ? value.substring(0, value.length() - 1) : value;
     }
 }

@@ -8,6 +8,9 @@ spring:
 
 media:
   provider: ${MEDIA_PROVIDER:unavailable}
+  cache:
+    max-entries: ${REELSAVE_CACHE_MAX_ENTRIES:500}
+    ttl-seconds: ${REELSAVE_CACHE_TTL_SECONDS:300}
   ytdlp:
     executable: ${YTDLP_EXECUTABLE:yt-dlp}
     timeout-seconds: ${YTDLP_TIMEOUT_SECONDS:30}

@@ -14,6 +14,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.TimeUnit;
 import tools.jackson.core.JacksonException;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.json.JsonMapper;
@@ -41,6 +42,8 @@ public class YtDlpMediaProvider implements MediaDownloadProvider {
             "--no-cookies-from-browser",
             "--no-cache-dir",
             "--no-playlist",
+            "--no-write-comments",
+            "--no-check-formats",
             "--format",
             PROGRESSIVE_MP4_FORMAT,
             "--simulate",
@@ -102,14 +105,18 @@ public class YtDlpMediaProvider implements MediaDownloadProvider {
         List<String> arguments = new ArrayList<>(FIXED_ARGUMENTS);
         arguments.add(reelUrl.uri().toString());
 
+        long startNanos = System.nanoTime();
         try {
             YtDlpProcessRunner.ExecutionResult result = processRunner.execute(executable, arguments, timeout);
+            long processDurationMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
+
             if (result.exitCode() != 0 || result.stdoutTruncated() || result.stderrTruncated()) {
-                logger.warn("yt-dlp metadata resolution failed; exitCode={}, outputTruncated={}",
-                        result.exitCode(), result.stdoutTruncated() || result.stderrTruncated());
+                logger.warn("yt-dlp metadata resolution failed in {}ms; exitCode={}, outputTruncated={}",
+                        processDurationMs, result.exitCode(), result.stdoutTruncated() || result.stderrTruncated());
                 return error(SAFE_FAILURE_MESSAGE);
             }
 
+            long parseStartNanos = System.nanoTime();
             JsonNode metadata = objectMapper.readTree(result.stdout());
             if (metadata == null || !metadata.isObject()) {
                 return error(SAFE_FAILURE_MESSAGE);
@@ -121,6 +128,12 @@ public class YtDlpMediaProvider implements MediaDownloadProvider {
             }
 
             String shortcode = shortcode(reelUrl);
+            logger.info("yt-dlp extraction succeeded for shortcode={} in {}ms (process={}ms, parse={}ms)",
+                    shortcode,
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos),
+                    processDurationMs,
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - parseStartNanos));
+
             return new MediaResult(
                     MediaStatus.READY,
                     selectedFormat.get().url(),

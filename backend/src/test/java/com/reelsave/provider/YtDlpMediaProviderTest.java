@@ -66,6 +66,8 @@ class YtDlpMediaProviderTest {
                 "--no-cookies-from-browser",
                 "--no-cache-dir",
                 "--no-playlist",
+                "--no-write-comments",
+                "--no-check-formats",
                 "--format",
                 "best[ext=mp4][height<=1080]/best[ext=mp4]",
                 "--simulate",

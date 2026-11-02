@@ -139,10 +139,17 @@ export async function validateReelUrl(url: string): Promise<ReelValidationRespon
 export async function resolveReelUrl(url: string): Promise<MediaResult> {
   let response: Response
   try {
+    const correlationId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : undefined
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (correlationId) {
+      headers['X-Correlation-ID'] = correlationId
+    }
     response = await fetch(`${API_BASE_URL}/api/v1/reels/resolve`, {
       method: 'POST',
       credentials: 'omit',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
       body: JSON.stringify({ url }),
     })
   } catch {
