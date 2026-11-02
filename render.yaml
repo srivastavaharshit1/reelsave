@@ -13,7 +13,7 @@ services:
       - key: MEDIA_PROVIDER
         value: ytdlp
       - key: YTDLP_EXECUTABLE
-        value: yt-dlp
+        value: /usr/local/bin/yt-dlp
       - key: YTDLP_TIMEOUT_SECONDS
         value: "30"
       - key: YTDLP_DOWNLOAD_TIMEOUT_SECONDS

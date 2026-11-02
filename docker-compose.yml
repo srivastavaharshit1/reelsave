@@ -9,10 +9,11 @@ services:
     environment:
       - PORT=8080
       - MEDIA_PROVIDER=ytdlp
-      - YTDLP_EXECUTABLE=yt-dlp
+      - YTDLP_EXECUTABLE=/usr/local/bin/yt-dlp
       - YTDLP_TIMEOUT_SECONDS=30
       - YTDLP_DOWNLOAD_TIMEOUT_SECONDS=120
       - YTDLP_MAX_DOWNLOAD_BYTES=52428800
+      - REELSAVE_CORS_ALLOWED_ORIGINS=http://localhost:5173,http://localhost:3000,https://reelsave-five.vercel.app
       - REELSAVE_RATE_LIMIT_ENABLED=true
       - REELSAVE_RATE_LIMIT_REQUESTS_PER_WINDOW=30
       - REELSAVE_RATE_LIMIT_WINDOW_SECONDS=60
