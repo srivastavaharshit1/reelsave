@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ApiError, normalizeApiError, resolveReelUrl, validateReelUrl } from './client'
+import { ApiError, downloadReel, getHealth, normalizeApiError, resolveReelUrl, validateReelUrl } from './client'
 
 function response(status: number, body: unknown): Response {
   return {
@@ -38,6 +38,18 @@ describe('API error normalization', () => {
 })
 
 describe('Reel API responses', () => {
+  it('checks backend health through the centralized client without browser credentials', async () => {
+    const health = { status: 'UP', service: 'reelsave-api' }
+    const fetchMock = vi.fn().mockResolvedValue(response(200, health))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(getHealth()).resolves.toEqual(health)
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/health', {
+      signal: undefined,
+      credentials: 'omit',
+    })
+  })
+
   it('returns validation failures from the existing HTTP 400 contract', async () => {
     const validation = { valid: false, platform: 'instagram', type: null, message: 'Invalid.' }
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(400, validation)))
@@ -59,6 +71,25 @@ describe('Reel API responses', () => {
     await expect(resolveReelUrl('https://www.instagram.com/reel/ABC123/')).resolves.toEqual(unavailable)
   })
 
+  it('does not accept READY from an HTTP 503 response', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(503, {
+      status: 'READY',
+      mediaUrl: 'https://scontent-del2-2.cdninstagram.com/example.mp4',
+      filename: 'reel.mp4',
+      contentType: 'video/mp4',
+    })))
+
+    await expect(resolveReelUrl('https://www.instagram.com/reel/ABC123/'))
+      .rejects.toMatchObject({ status: 503 })
+  })
+
+  it('preserves an HTTP 502 and ERROR response as a typed media result', async () => {
+    const error = { status: 'ERROR', message: 'Internal provider details' }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(502, error)))
+
+    await expect(resolveReelUrl('https://www.instagram.com/reel/ABC123/')).resolves.toEqual(error)
+  })
+
   it('does not expose backend response details for an HTTP error', async () => {
     const fetchMock = vi.fn().mockResolvedValue(response(500, { message: 'Database password or stack trace.' }))
     vi.stubGlobal('fetch', fetchMock)
@@ -67,5 +98,43 @@ describe('Reel API responses', () => {
       .rejects.toMatchObject({ status: 500 })
     expect(normalizeApiError(new ApiError(500))).toBe('Something went wrong on our side. Please try again.')
     expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('Reel downloads', () => {
+  it('posts only the Reel URL to the dedicated backend download route and returns MP4 bytes', async () => {
+    const blob = new Blob(['mp4 bytes'], { type: 'video/mp4' })
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: (name: string) => name.toLowerCase() === 'content-type' ? 'video/mp4' : '8' },
+      blob: vi.fn().mockResolvedValue(blob),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(downloadReel('https://www.instagram.com/reel/ABC123/')).resolves.toBe(blob)
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/reels/download', expect.objectContaining({
+      method: 'POST',
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: 'url=https%3A%2F%2Fwww.instagram.com%2Freel%2FABC123%2F',
+    }))
+  })
+
+  it('rejects non-MP4 and empty successful download responses', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: (name: string) => name.toLowerCase() === 'content-type' ? 'application/json' : null },
+      blob: vi.fn().mockResolvedValue(new Blob(['error'])),
+    }))
+    await expect(downloadReel('https://www.instagram.com/reel/ABC123/'))
+      .rejects.toMatchObject({ status: 502 })
+  })
+
+  it('does not expose backend error bodies for failed download requests', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response(503, { message: 'internal provider stderr' })))
+    await expect(downloadReel('https://www.instagram.com/reel/ABC123/'))
+      .rejects.toMatchObject({ status: 503 })
   })
 })

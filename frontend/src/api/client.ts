@@ -1,4 +1,13 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8080'
+// An empty base uses same-origin /api routes in production deployments.
+// Vite proxies these routes to the local backend during development.
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? '').replace(/\/+$/, '')
+const HARD_MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024
+const configuredDownloadMax = Number(import.meta.env.VITE_DOWNLOAD_MAX_BYTES)
+const MAX_DOWNLOAD_BYTES = Number.isSafeInteger(configuredDownloadMax)
+    && configuredDownloadMax > 0
+    && configuredDownloadMax <= HARD_MAX_DOWNLOAD_BYTES
+  ? configuredDownloadMax
+  : HARD_MAX_DOWNLOAD_BYTES
 
 export interface HealthResponse {
   status: string
@@ -39,6 +48,7 @@ const HTTP_ERROR_MESSAGES: Record<number, string> = {
   403: 'This request is not allowed.',
   404: 'The download service could not be found. Please try again later.',
   409: 'This link cannot be checked right now. Please try again.',
+  413: 'This video is too large to download through ReelSave.',
   429: "You're making requests too quickly. Please wait a moment and try again.",
   500: 'Something went wrong on our side. Please try again.',
   503: 'The download service is temporarily unavailable. Please try again later.',
@@ -99,7 +109,7 @@ function isMediaResult(value: unknown): value is MediaResult {
 export async function getHealth(signal?: AbortSignal): Promise<HealthResponse> {
   let response: Response
   try {
-    response = await fetch(`${API_BASE_URL}/api/v1/health`, { signal })
+    response = await fetch(`${API_BASE_URL}/api/v1/health`, { signal, credentials: 'omit' })
   } catch {
     throw new ApiError(null)
   }
@@ -112,6 +122,7 @@ export async function validateReelUrl(url: string): Promise<ReelValidationRespon
   try {
     response = await fetch(`${API_BASE_URL}/api/v1/reels/validate`, {
       method: 'POST',
+      credentials: 'omit',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
     })
@@ -130,6 +141,7 @@ export async function resolveReelUrl(url: string): Promise<MediaResult> {
   try {
     response = await fetch(`${API_BASE_URL}/api/v1/reels/resolve`, {
       method: 'POST',
+      credentials: 'omit',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ url }),
     })
@@ -137,8 +149,39 @@ export async function resolveReelUrl(url: string): Promise<MediaResult> {
     throw new ApiError(null)
   }
 
-  if (!response.ok && response.status !== 503) throw new ApiError(response.status)
+  if (!response.ok && response.status !== 502 && response.status !== 503) throw new ApiError(response.status)
   const result: unknown = await readJson(response)
   if (!isMediaResult(result)) throw new ApiError(response.status)
+  if (response.status === 502 && result.status !== 'ERROR') throw new ApiError(502)
+  if (response.status === 503 && result.status !== 'UNAVAILABLE') throw new ApiError(503)
   return result
+}
+
+export async function downloadReel(url: string): Promise<Blob> {
+  let response: Response
+  try {
+    response = await fetch(`${API_BASE_URL}/api/v1/reels/download`, {
+      method: 'POST',
+      credentials: 'omit',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+      body: new URLSearchParams({ url }).toString(),
+    })
+  } catch {
+    throw new ApiError(null)
+  }
+
+  if (!response.ok) throw new ApiError(response.status)
+
+  const contentType = response.headers.get('Content-Type')?.split(';')[0]?.trim().toLowerCase()
+  const contentLength = Number(response.headers.get('Content-Length'))
+  if (contentType !== 'video/mp4'
+    || (Number.isFinite(contentLength) && contentLength > MAX_DOWNLOAD_BYTES)) {
+    throw new ApiError(contentLength > MAX_DOWNLOAD_BYTES ? 413 : 502)
+  }
+
+  const blob = await response.blob()
+  if (blob.size === 0 || blob.size > MAX_DOWNLOAD_BYTES) {
+    throw new ApiError(blob.size > MAX_DOWNLOAD_BYTES ? 413 : 502)
+  }
+  return blob
 }

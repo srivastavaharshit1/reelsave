@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react'
-import { normalizeApiError, resolveReelUrl, validateReelUrl, type MediaResult } from '../api/client'
+import { downloadReel, normalizeApiError, resolveReelUrl, validateReelUrl, type MediaResult } from '../api/client'
 import { toReadyMediaResult, type ReadyMediaResult } from '../media/readyMedia'
+import { saveBlob } from '../media/saveBlob'
 
 export type DownloadWorkflowState =
   | { status: 'IDLE' }
@@ -10,6 +11,7 @@ export type DownloadWorkflowState =
   | { status: 'RESOLVING'; url: string }
   | { status: 'PROCESSING'; url: string }
   | { status: 'READY'; url: string; result: ReadyMediaResult }
+  | { status: 'DOWNLOADING'; url: string; result: ReadyMediaResult }
   | { status: 'UNAVAILABLE'; url: string }
   | { status: 'ERROR'; url: string; message: string }
 
@@ -68,5 +70,36 @@ export function useDownloadWorkflow() {
     if (!requestInProgress.current) setState({ status: 'IDLE' })
   }, [])
 
-  return { state, submit, reset }
+  const reportMediaFailure = useCallback(() => {
+    setState((current) => current.status === 'READY'
+      ? {
+          status: 'ERROR',
+          url: current.url,
+          message: 'This media link could not be opened or may have expired. Check the Reel again to get a fresh link.',
+        }
+      : current)
+  }, [])
+
+  const download = useCallback(async () => {
+    if (state.status !== 'READY' || requestInProgress.current) return
+
+    const readyState = state
+    requestInProgress.current = true
+    setState({ status: 'DOWNLOADING', url: readyState.url, result: readyState.result })
+    try {
+      const blob = await downloadReel(readyState.url)
+      saveBlob(blob, readyState.result.filename)
+      setState(readyState)
+    } catch (error) {
+      setState({
+        status: 'ERROR',
+        url: readyState.url,
+        message: normalizeApiError(error),
+      })
+    } finally {
+      requestInProgress.current = false
+    }
+  }, [state])
+
+  return { state, submit, reset, reportMediaFailure, download }
 }

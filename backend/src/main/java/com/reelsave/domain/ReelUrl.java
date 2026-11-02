@@ -11,7 +11,7 @@ import java.util.regex.Pattern;
 public final class ReelUrl {
 
     private static final Set<String> ALLOWED_HOSTS = Set.of("instagram.com", "www.instagram.com");
-    private static final Pattern REEL_PATH = Pattern.compile("^/reel/[A-Za-z0-9_-]+/?$");
+    private static final Pattern REEL_PATH = Pattern.compile("^/reel/[A-Za-z0-9_-]{1,80}/?$");
 
     private final URI uri;
 

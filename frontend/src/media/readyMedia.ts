@@ -8,44 +8,37 @@ export interface ReadyMediaResult {
   fileSizeBytes?: number
 }
 
-const allowedMediaHosts = new Set(
-  (import.meta.env.VITE_MEDIA_ALLOWED_HOSTS ?? '')
-    .split(',')
-    .map((host) => host.trim().toLowerCase())
-    .filter(Boolean),
-)
-
-function trustedHttpsUrl(value: string | undefined, trustedHosts: ReadonlySet<string>): string | undefined {
-  if (!value) return undefined
+function trustedHttpsUrl(value: string | undefined): string | undefined {
+  if (!value || value !== value.trim()) return undefined
   try {
     const url = new URL(value)
+    const host = url.hostname.toLowerCase()
     if (url.protocol !== 'https:'
       || url.username
       || url.password
       || url.port
-      || !trustedHosts.has(url.hostname.toLowerCase())) {
+      || url.hash
+      || !host.endsWith('.cdninstagram.com')) {
       return undefined
     }
-    return url.toString()
+    return value
   } catch {
     return undefined
   }
 }
 
-export function toReadyMediaResult(
-  result: MediaResult,
-  trustedHosts: ReadonlySet<string> = allowedMediaHosts,
-): ReadyMediaResult | null {
+export function toReadyMediaResult(result: MediaResult): ReadyMediaResult | null {
   if (result.status !== 'READY') return null
 
-  const mediaUrl = trustedHttpsUrl(result.mediaUrl, trustedHosts)
+  const mediaUrl = trustedHttpsUrl(result.mediaUrl)
   const filename = result.filename?.trim()
   const contentType = result.contentType?.trim().toLowerCase()
   if (!mediaUrl
     || !filename
-    || /[\\/]/.test(filename)
-    || Array.from(filename).some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
-    || !contentType?.startsWith('video/')) {
+    || filename.length > 104
+    || !/^[A-Za-z0-9_-][A-Za-z0-9._-]*\.mp4$/i.test(filename)
+    || filename.includes('..')
+    || contentType !== 'video/mp4') {
     return null
   }
 
@@ -61,7 +54,7 @@ export function toReadyMediaResult(
 
   return {
     mediaUrl,
-    thumbnailUrl: trustedHttpsUrl(result.thumbnailUrl, trustedHosts),
+    thumbnailUrl: trustedHttpsUrl(result.thumbnailUrl),
     filename,
     contentType,
     ...(result.fileSizeBytes === undefined ? {} : { fileSizeBytes: result.fileSizeBytes }),

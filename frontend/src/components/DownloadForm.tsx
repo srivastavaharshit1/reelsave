@@ -4,13 +4,13 @@ import { DownloadStatus } from './DownloadStatus'
 import { useDownloadWorkflow, type DownloadWorkflowState } from '../hooks/useDownloadWorkflow'
 
 function isBusy(status: DownloadWorkflowState['status']): boolean {
-  return status === 'VALIDATING' || status === 'VALID_URL' || status === 'RESOLVING'
+  return status === 'VALIDATING' || status === 'VALID_URL' || status === 'RESOLVING' || status === 'DOWNLOADING'
 }
 
 export function DownloadForm() {
   const [url, setUrl] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
-  const { state, submit, reset } = useDownloadWorkflow()
+  const { state, submit, reset, reportMediaFailure, download } = useDownloadWorkflow()
   const busy = isBusy(state.status)
 
   useEffect(() => {
@@ -58,11 +58,12 @@ export function DownloadForm() {
             type="url"
             inputMode="url"
             autoComplete="url"
+            maxLength={2048}
             placeholder="Paste an Instagram Reel link"
             value={url}
             onChange={(event) => handleChange(event.target.value)}
             aria-describedby={state.status === 'IDLE' || state.status === 'READY' ? undefined : 'form-message'}
-            aria-invalid={state.status === 'INVALID_URL' || state.status === 'ERROR'}
+            aria-invalid={state.status === 'INVALID_URL'}
             disabled={busy}
             className="w-full min-w-0 border-0 bg-transparent text-sm text-ink outline-none placeholder:text-muted/70 focus:ring-0 disabled:opacity-70"
           />
@@ -74,11 +75,24 @@ export function DownloadForm() {
           className="flex w-full shrink-0 items-center justify-center gap-2 rounded-xl bg-accent px-6 py-3.5 text-sm font-semibold text-white transition hover:bg-[#d55f3f] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
         >
           {busy && <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />}
-          {busy ? state.status === 'VALIDATING' ? 'Checking…' : 'Resolving…' : buttonLabel}
+          {busy
+            ? state.status === 'VALIDATING'
+              ? 'Checking…'
+              : state.status === 'DOWNLOADING'
+                ? 'Downloading…'
+                : 'Resolving…'
+            : buttonLabel}
         </button>
       </form>
       <DownloadStatus state={state} />
-      {state.status === 'READY' && <DownloadResult result={state.result} />}
+      {(state.status === 'READY' || state.status === 'DOWNLOADING') && (
+        <DownloadResult
+          result={state.result}
+          isDownloading={state.status === 'DOWNLOADING'}
+          onDownload={() => { void download() }}
+          onMediaError={reportMediaFailure}
+        />
+      )}
     </div>
   )
 }

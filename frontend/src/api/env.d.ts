@@ -2,5 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_BASE_URL?: string
-  readonly VITE_MEDIA_ALLOWED_HOSTS?: string
+  readonly VITE_PUBLIC_SITE_URL?: string
+  readonly VITE_CONTACT_EMAIL?: string
+  readonly VITE_DOWNLOAD_MAX_BYTES?: string
 }

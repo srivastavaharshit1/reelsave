@@ -1,13 +1,14 @@
 package com.reelsave.controller;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 import static org.hamcrest.Matchers.nullValue;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
@@ -83,6 +84,11 @@ class ReelControllerTest {
     }
 
     @Test
+    void rejectsOverlongShortcodesBeforeTheyBecomeOutputFilenames() throws Exception {
+        assertInvalid("https://www.instagram.com/reel/" + "A".repeat(81) + "/");
+    }
+
+    @Test
     void resolveReturnsUnavailableWhenNoMediaProviderIsConfigured() throws Exception {
         mockMvc.perform(post("/api/v1/reels/resolve")
                         .contentType(MediaType.APPLICATION_JSON)
@@ -91,6 +97,15 @@ class ReelControllerTest {
                 .andExpect(jsonPath("$.status").value("UNAVAILABLE"))
                 .andExpect(jsonPath("$.message").value("Media download is not currently available."))
                 .andExpect(jsonPath("$.mediaUrl").doesNotExist());
+    }
+
+    @Test
+    void returnsNotFoundForAnUnmappedResourceWithoutLoggingItAsAnUnexpectedError() throws Exception {
+        mockMvc.perform(get("/api/v1/not-a-route"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.status").value(404))
+                .andExpect(jsonPath("$.title").value("Not found"))
+                .andExpect(jsonPath("$.detail").value("The requested resource was not found."));
     }
 
     private void assertValid(String url) throws Exception {

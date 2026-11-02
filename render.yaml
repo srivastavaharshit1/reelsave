@@ -1,0 +1,34 @@
+services:
+  - type: web
+    name: reelsave-backend
+    runtime: docker
+    repo: https://github.com/srivastavaharshit1/reelsave
+    branch: master
+    rootDir: backend
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: MEDIA_PROVIDER
+        value: ytdlp
+      - key: YTDLP_EXECUTABLE
+        value: yt-dlp
+      - key: YTDLP_TIMEOUT_SECONDS
+        value: "30"
+      - key: YTDLP_DOWNLOAD_TIMEOUT_SECONDS
+        value: "120"
+      - key: YTDLP_MAX_DOWNLOAD_BYTES
+        value: "52428800"
+      - key: REELSAVE_CORS_ALLOWED_ORIGINS
+        value: https://reelsave-five.vercel.app,https://reelsave.vercel.app
+      - key: REELSAVE_RATE_LIMIT_ENABLED
+        value: "true"
+      - key: REELSAVE_RATE_LIMIT_REQUESTS_PER_WINDOW
+        value: "30"
+      - key: REELSAVE_RATE_LIMIT_WINDOW_SECONDS
+        value: "60"
+      - key: REELSAVE_RATE_LIMIT_MAX_CLIENTS
+        value: "10000"
+      - key: REELSAVE_LOGGING_LEVEL_ROOT
+        value: INFO
